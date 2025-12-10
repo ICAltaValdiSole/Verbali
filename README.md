@@ -1,4 +1,4 @@
-# 📝 Verbali Suite (v15.23)
+# 📝 Generatore Verbali
 
 **Verbali Suite** è un'applicazione web moderna, responsive e *client-side* progettata per semplificare la redazione e la stampa PDF dei verbali scolastici (Consigli di Classe, Dipartimenti e Riunioni generiche).
 
