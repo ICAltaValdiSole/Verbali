@@ -31,7 +31,7 @@ L'applicazione funziona interamente nel browser, salvando i dati automaticamente
 
 ## 📂 Struttura dei File
 
-Il progetto è composto da soli file statici, pronti per essere caricati su qualsiasi hosting (GitHub Pages, Aruba, ecc.):
+Il progetto è composto da soli file statici:
 
 ```text
 / (root)
