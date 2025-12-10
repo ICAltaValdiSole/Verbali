@@ -10,7 +10,7 @@ const SCHOOL_CONFIG = {
     rigaCodici: "Codice Fiscale/P. IVA: 92013790222 | Codice Ministeriale: TNIC832006",
 
     // Logo (Assicurati che il file esista nella cartella assets)
-    logoPath: "/assets/logo_scuola.png",
+    logoPath: "./logo.png",
 
     // Testo piè di pagina
     footerText: "Verbale generato digitalmente - IC Alta Val di Sole"
