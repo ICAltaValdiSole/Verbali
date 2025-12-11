@@ -1,4 +1,4 @@
-/* script.js - Verbali 15.23 Final (Preview, Absents, PDF Fixes) */
+/* script.js - Verbali 15.26 (Persistence Fix: Reload Restores Exact State) */
 
 function applyConfig() {
     const nameEl = document.getElementById('sidebarSchoolName');
@@ -20,8 +20,10 @@ function applyConfig() {
     }
 }
 
+// DATA STORE CON "ACTIVE TAB"
 let appData = {
     type: 'consiglio',
+    activeTab: 'general', // Memorizza dove sei
     general: { seduta: '', scope: '', data: '', oraInizio: '', oraFine: '', presidente: '', segretario: '', titoloAgg: '', closingText: '' },
     participants: { docenti: { presenti: [], assenti: [] }, genitori: { presenti: [], assenti: [] } },
     agenda: [], minutes: {}, extra: { sintesi: '', decisioni: '', allegati: '' },
@@ -32,20 +34,38 @@ let appData = {
 
 let schoolLogoBase64 = null;
 
+// INIZIALIZZAZIONE INTELLIGENTE
 document.addEventListener('DOMContentLoaded', () => {
     try { applyConfig(); } catch(e) { console.error("Config Error", e); }
 
-    const raw = localStorage.getItem('verbale_v15_23'); 
+    // NOTA: Cambio versione per evitare conflitti con vecchi dati non compatibili
+    const raw = localStorage.getItem('verbale_v15_26'); 
+    
     if (raw) {
-        document.getElementById('typeModal').classList.add('hidden');
+        // CASO 1: DATI ESISTENTI -> RIPRISTINA TUTTO
+        document.getElementById('typeModal').classList.add('hidden'); // Nascondi scelta
         try {
             const loaded = JSON.parse(raw);
             appData = { ...appData, ...loaded };
-            if(!appData.sections) appData.sections = { general: true, people: true, agenda: true, minutes: true, extra: true };
-            if(!appData.customSections) appData.customSections = [];
+            
+            // Ripristina configurazione UI in base al tipo salvato
+            configureUIByType();
+            
+            // Ripristina sezioni custom e dati
+            renderCustomSectionsUI();
+            syncNavVisibility();
             restoreData();
-        } catch(e) { console.error(e); }
+            
+            // Torna esattamente dove eri
+            goToTab(appData.activeTab || 'general');
+            
+        } catch(e) { 
+            console.error(e); 
+            // Se c'è errore, mostra comunque il modale per sicurezza
+            document.getElementById('typeModal').classList.remove('hidden');
+        }
     } else {
+        // CASO 2: NESSUN DATO -> MOSTRA SCELTA INIZIALE
         document.getElementById('typeModal').classList.remove('hidden');
     }
     
@@ -57,21 +77,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+// NAVIGAZIONE (Salva la posizione corrente)
 window.goToTab = function(tabId) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(el => {
         el.classList.remove('bg-white', 'text-slate-800', 'shadow-sm');
         el.classList.add('text-slate-500', 'hover:bg-slate-50');
     });
+    
     const targetContent = document.getElementById(tabId);
     if(targetContent) targetContent.classList.add('active');
+    
     const btn = document.getElementById(`nav-${tabId}`);
     if(btn) {
         btn.classList.remove('text-slate-500', 'hover:bg-slate-50');
         btn.classList.add('bg-white', 'text-slate-800', 'shadow-sm');
     }
+    
+    // Aggiorna stato e salva
+    appData.activeTab = tabId;
+    
+    // Non salvare se siamo nel tutorial (per evitare di riaprirlo al reload se non voluto)
+    if(tabId !== 'tutorial') {
+        saveData();
+    }
+
     if(tabId === 'minutes') renderMinutes();
     if(tabId === 'preview') renderPreview(); 
+    
     if (window.innerWidth < 768) {
         const sb = document.getElementById('sidebar');
         const ov = document.getElementById('mobileOverlay');
@@ -84,11 +117,14 @@ window.goToTab = function(tabId) {
 window.closeSectionsModalAndNavigate = function() {
     document.getElementById('sections-modal').classList.add('hidden');
     const activeKeys = Object.keys(appData.sections).filter(k => appData.sections[k]);
+    
+    // Decide dove andare dopo aver chiuso il gestore sezioni
     if(activeKeys.length > 0) goToTab(activeKeys[0]); 
     else if (appData.customSections.length > 0) goToTab(appData.customSections[0].id); 
     else goToTab('preview'); 
 }
 
+// UTILS
 function showToast(m){const c=document.getElementById('toast-container');const t=document.createElement('div');t.className=`toast flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg bg-white text-slate-700 border-slate-200 min-w-[200px] z-[100]`;t.innerHTML=`<i class="ph ph-check-circle text-emerald-500 text-lg"></i> <span class="text-sm font-semibold">${m}</span>`;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transform='translateY(10px)';setTimeout(()=>t.remove(),300)},2500)}
 function showConfirm(t,m){return new Promise(r=>{const el=document.getElementById('custom-modal');document.getElementById('modal-title').textContent=t;document.getElementById('modal-message').textContent=m;el.classList.remove('hidden');const c=v=>{el.classList.add('hidden');r(v)};const y=document.getElementById('modal-confirm'),n=document.getElementById('modal-cancel');const ny=y.cloneNode(true),nn=n.cloneNode(true);y.replaceWith(ny);n.replaceWith(nn);ny.onclick=()=>c(true);nn.onclick=()=>c(false)})}
 function showEditModal(v){return new Promise(r=>{const el=document.getElementById('edit-modal'),i=document.getElementById('edit-input');i.value=v;el.classList.remove('hidden');setTimeout(()=>i.focus(),100);const c=x=>{el.classList.add('hidden');r(x)};const y=document.getElementById('edit-confirm'),n=document.getElementById('edit-cancel');const ny=y.cloneNode(true),nn=n.cloneNode(true);y.replaceWith(ny);n.replaceWith(nn);ny.onclick=()=>c(i.value);nn.onclick=()=>c(null);i.onkeydown=e=>{if(e.key==='Enter')c(i.value)}})}
@@ -96,9 +132,18 @@ function showEditModal(v){return new Promise(r=>{const el=document.getElementByI
 window.handleEditLabel=async function(id){const l=document.getElementById(id);if(!l)return;const t=await showEditModal(l.innerText);if(t&&t!==l.innerText){l.innerText=t; appData.labels[id]=t; saveData(); showToast("Etichetta aggiornata");}}
 window.handleHideField=async function(id){const e=document.getElementById(id);if(e){e.classList.add('field-hidden');if(!appData.hiddenFields.includes(id)){appData.hiddenFields.push(id);saveData();showToast("Campo nascosto"); updateRestoreButton();}}}
 window.handleRestoreFields=async function(){if(await showConfirm("Ripristina","Resettare tutto?")){document.querySelectorAll('.field-hidden').forEach(e=>e.classList.remove('field-hidden'));appData.hiddenFields=[];appData.labels={};restoreData();saveData();showToast("Ripristinato")}}
-window.handleFullReset=async function(){if(await showConfirm("Nuova Sessione","Cancellare tutto?")){localStorage.removeItem('verbale_v15_23');location.reload()}}
+
+// RESET COMPLETO (TORNA ALLA SCELTA INIZIALE)
+window.handleFullReset=async function(){
+    if(await showConfirm("Nuova Sessione","Cancellare tutto e ricominciare?")){
+        localStorage.removeItem('verbale_v15_26'); // Cancella memoria
+        location.reload(); // Ricarica pagina -> torna al modale iniziale
+    }
+}
+
 function updateRestoreButton(){const b=document.getElementById('restoreBtnContainer');if(b)(appData.hiddenFields.length>0||Object.keys(appData.labels).length>0)?(b.classList.remove('hidden'),b.classList.add('visible')):(b.classList.remove('visible'),b.classList.add('hidden'))}
 
+// GESTIONE SEZIONI
 window.openSectionsModal = function() { Object.keys(appData.sections).forEach(key => { const cb = document.getElementById(`toggle-${key}`); if(cb) cb.checked = appData.sections[key]; }); renderCustomSectionsList(); document.getElementById('sections-modal').classList.remove('hidden'); }
 window.toggleSection = function(sectionKey) { const cb = document.getElementById(`toggle-${sectionKey}`); appData.sections[sectionKey] = cb.checked; syncNavVisibility(); saveData(); }
 function syncNavVisibility() { Object.keys(appData.sections).forEach(k => { const navBtn = document.getElementById(`nav-${k}`); if(navBtn) (appData.sections[k]) ? navBtn.classList.remove('hidden') : navBtn.classList.add('hidden'); }); }
@@ -186,7 +231,7 @@ function renderCustomSectionsUI() {
         else {
             contentHTML = `<div class="card-pro p-6 md:p-8 rounded-[2.5rem]"><div class="flex gap-3 mb-6 bg-orange-50 p-2 rounded-xl"><input type="text" id="add-list-sub-${s.id}" class="flex-1 p-3 rounded-lg bg-white border border-orange-100 text-sm" placeholder="Azione / Punto..." onkeypress="if(event.key==='Enter') document.getElementById('add-list-note-${s.id}').focus()"><input type="text" id="add-list-note-${s.id}" class="flex-1 p-3 rounded-lg bg-white border border-orange-100 text-sm" placeholder="Esito / Responsabile..." onkeypress="if(event.key==='Enter') addListPoint('${s.id}')"><button onclick="addListPoint('${s.id}')" class="bg-orange-500 text-white px-4 rounded-lg font-bold hover:bg-orange-600 shadow-md">+</button></div><ul id="ul-${s.id}" class="space-y-2">${(s.content || []).map((item, idx) => `<li class="flex items-start gap-3 bg-white p-3 rounded-xl border border-slate-100 animate-fade-in shadow-sm"><span class="w-6 h-6 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center text-xs font-bold mt-1 shadow-sm">${idx+1}</span><input type="text" value="${item.sub || ''}" onchange="updateListPoint('${s.id}', ${idx}, 'sub', this.value)" class="flex-1 bg-transparent border-b border-transparent focus:border-orange-300 focus:bg-orange-50/50 outline-none transition-all px-2 py-1 text-sm font-medium text-slate-800" placeholder="Descrizione..."><input type="text" value="${item.note || ''}" onchange="updateListPoint('${s.id}', ${idx}, 'note', this.value)" class="flex-1 bg-transparent border-b border-transparent focus:border-orange-300 focus:bg-orange-50/50 outline-none transition-all px-2 py-1 text-sm text-slate-600" placeholder="Note..."><button onclick="removeListPoint('${s.id}', ${idx})" class="text-slate-300 hover:text-red-500 shrink-0"><i class="ph ph-trash"></i></button></li>`).join('')}</ul></div>`;
         }
-        
+
         let titleStyle = '';
         if(s.style) {
             if(s.style.color) titleStyle += `color:${s.style.color};`;
@@ -199,6 +244,7 @@ function renderCustomSectionsUI() {
                 if(s.style.size == '18') sz = '2.25rem';
                 titleStyle += `font-size:${sz};`;
             }
+            if(s.style.align) titleStyle += `text-align:${s.style.align};`;
         }
         mainCont.innerHTML += `<div id="${s.id}" class="tab-content max-w-4xl mx-auto pb-24"><header class="mb-8 flex justify-between items-center"><h2 class="font-black tracking-tight" style="${titleStyle}">${s.title}</h2><span class="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-bold uppercase">${s.type === 'table' ? 'Tabella' : (s.type === 'list' ? 'Piano Azioni' : 'Editor')}</span></header>${contentHTML}</div>`;
     });
@@ -231,7 +277,7 @@ function configureUIByType() {
     const sigSection = document.getElementById('signatures-section'); if(sigSection) isDept ? sigSection.classList.add('hidden') : sigSection.classList.remove('hidden');
     const fieldTitolo = document.getElementById('field-titoloAgg'); if(fieldTitolo) (isDept || isFree) ? fieldTitolo.classList.remove('hidden') : fieldTitolo.classList.add('hidden');
     const lblScope = document.getElementById('lbl-scope'); if(lblScope && !appData.labels['lbl-scope']) lblScope.innerText = isFree ? 'Oggetto / Gruppo' : (isDept ? 'Materia / Dipartimento' : 'Classe / Sezione');
-    const lblPres = document.getElementById('lbl-pres'); if(lblPres && !appData.labels['lbl-pres']) lblPres.innerText = isFree ? 'Coordinatore' : (isDept ? 'Presidente' : 'Coordinatore');
+    const lblPres = document.getElementById('lbl-pres'); if(lblPres && !appData.labels['lbl-pres']) lblPres.innerText = isFree ? 'Presiede / Coordina' : (isDept ? 'Presidente' : 'Coordinatore');
     const lblSegr = document.getElementById('lbl-segr'); if(lblSegr && !appData.labels['lbl-segr'] && isFree) lblSegr.innerText = 'Verbalizzante';
     const closingEl = document.getElementById('closingText'); if(closingEl) closingEl.value = appData.general.closingText || '';
 }
@@ -256,7 +302,7 @@ function updateModel(t){
     else if(id.startsWith('min-decisioni-')){const m=id.replace('min-decisioni-','');if(!appData.minutes[m])appData.minutes[m]={};appData.minutes[m].decisioni=t.value}
 }
 
-function saveData(){localStorage.setItem('verbale_v15_19',JSON.stringify(appData))}
+function saveData(){localStorage.setItem('verbale_v15_26',JSON.stringify(appData))}
 
 function restoreData(){
     configureUIByType(); renderCustomSectionsUI(); applyCustomizations(); syncNavVisibility();
@@ -285,7 +331,6 @@ function checkEmptyAgenda(){const e=document.getElementById('emptyAgendaMsg');if
 function renderAgenda(){const c=document.getElementById('agendaContainer');if(!c)return;c.innerHTML='';appData.agenda.forEach((x,i)=>{c.innerHTML+=`<div class="flex items-start gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-fade-in"><div class="w-8 h-8 bg-slate-800 text-white rounded-full flex items-center justify-center font-bold text-sm shrink-0 mt-1 shadow-md">${i+1}</div><div class="flex-1 space-y-3"><input type="text" id="agenda-title-${x.id}" value="${x.title}" class="w-full font-bold text-lg bg-transparent border-b border-slate-300 focus:border-indigo-600 outline-none text-slate-800 placeholder-slate-400 pb-1 transition-colors" placeholder="Titolo..."><textarea id="agenda-desc-${x.id}" rows="2" class="w-full text-sm bg-white border border-slate-200 rounded-xl p-3 focus:border-indigo-500 outline-none text-slate-600 resize-y placeholder-slate-300 shadow-sm" placeholder="Note / Dettagli (saranno piccoli in stampa)...">${x.description}</textarea></div><button onclick="removeAgendaItem('${x.id}')" class="text-slate-300 hover:text-red-600 p-2 transition-colors bg-white hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100"><i class="ph ph-trash text-xl"></i></button></div>`})}
 function renderMinutes(){const c=document.getElementById('minutesContainer'); if(!c)return; c.innerHTML=''; if(appData.agenda.length===0){c.innerHTML='<div class="text-center text-slate-400 py-10">Definisci prima l\'Ordine del Giorno.</div>';return} appData.agenda.forEach((x,i)=>{const m = appData.minutes[x.id]||{sintesi:'',decisioni:''}; const deliberaId = `lbl-min-dec-${x.id}`; const deliberaLabel = appData.labels[deliberaId] || 'Delibera'; c.innerHTML+=`<div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow"><div class="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100"><span class="font-bold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-100 text-sm">Punto ${i+1}</span><h3 class="font-bold text-slate-800 text-lg">${x.title||'Senza titolo'}</h3></div><div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label class="block text-xs font-bold uppercase text-slate-400 mb-2">Discussione</label><textarea id="min-sintesi-${x.id}" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl h-48 input-glass text-sm leading-relaxed shadow-inner" placeholder="Sintesi...">${m.sintesi}</textarea></div><div><div class="flex items-center gap-2 mb-2"><label id="${deliberaId}" class="block text-xs font-bold uppercase text-slate-400">${deliberaLabel}</label><i class="ph ph-pencil-simple text-indigo-500 cursor-pointer hover:text-indigo-700" onclick="handleEditLabel('${deliberaId}')" title="Modifica etichetta"></i></div><textarea id="min-decisioni-${x.id}" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl h-48 input-glass text-sm leading-relaxed shadow-inner" placeholder="Decisioni...">${m.decisioni}</textarea></div></div></div>`});}
 
-// FIX: PREVIEW WITH ABSENTS (Same logic as PDF)
 window.renderPreview = function() {
     const container = document.getElementById('preview-content'); if(!container) return;
     const isDept = appData.type === 'dipartimento'; const isFree = appData.type === 'libero';
@@ -300,28 +345,18 @@ window.renderPreview = function() {
     html += `<div class="flex-1 text-left pt-1"><h1 class="text-xl font-bold uppercase leading-tight">${SCHOOL_CONFIG.nomeIstituto}</h1><p class="text-xs text-slate-600 mt-1">${SCHOOL_CONFIG.rigaIndirizzo} - ${SCHOOL_CONFIG.rigaContatti}</p></div></div>`;
 
     if(showGen) {
-        let mainTitle = 'VERBALE CONSIGLIO DI CLASSE'; if(isDept) mainTitle = 'VERBALE DI DIPARTIMENTO'; if(isFree) mainTitle = 'VERBALE DI RIUNIONE';
+        let mainTitle = 'VERBALE CONSIGLIO DI CLASSE'; if(isDept) mainTitle = 'VERBALE DI DIPARTIMENTO'; if(isFree) mainTitle = 'VERBALE';
         html += `<div class="text-center mb-8"><h2 class="text-2xl font-bold uppercase mb-2">${mainTitle}</h2>${isVisible('field-scope') ? `<h3 class="text-xl font-bold uppercase my-2">${getLabel('lbl-scope')}: ${getVal('scopeValue').toUpperCase()}</h3>` : ''}${isVisible('field-titoloAgg') && getVal('titoloAggiuntivo') ? `<h3 class="text-lg font-bold uppercase my-2 text-slate-700">${getVal('titoloAggiuntivo').toUpperCase()}</h3>` : ''}${isVisible('field-seduta') ? `<p class="font-bold text-slate-500">Seduta N. ${getVal('numeroSeduta')}</p>` : ''}</div>`;
         let dateLine = []; if(isVisible('field-data') && getVal('dataRiunione')) dateLine.push(new Date(getVal('dataRiunione')).toLocaleDateString('it-IT', {weekday:'long', day:'numeric', month:'long', year:'numeric'})); if(isVisible('field-start') && getVal('oraInizio')) dateLine.push(`dalle ${getVal('oraInizio')}`); if(isVisible('field-end') && getVal('oraFine')) dateLine.push(`alle ${getVal('oraFine')}`); if(dateLine.length) html += `<p class="text-center mb-8 font-medium">${dateLine.join(' ')}</p>`;
     }
 
     if(showPeo) {
         const labelPart = isFree ? "PARTECIPANTI" : (getLabel('lbl-sec-people') || 'PRESENTI'); html += `<div class="mb-6"><h4 class="font-bold text-sm uppercase mb-2 border-b border-slate-300 pb-1">${labelPart}</h4>`;
-        
-        // Presenti
         html += `<p class="mb-1"><strong>${isFree ? "Presenti:" : "Docenti:"}</strong> ${appData.participants.docenti.presenti.join(', ') || 'Nessuno'}</p>`;
-        
-        // Assenti (Docenti)
-        if(appData.participants.docenti.assenti.length > 0) {
-            html += `<p class="mb-1 text-slate-500"><strong>Assenti:</strong> ${appData.participants.docenti.assenti.join(', ')}</p>`;
-        }
-        
+        if(appData.participants.docenti.assenti.length > 0) { html += `<p class="mb-1 text-slate-500"><strong>Assenti:</strong> ${appData.participants.docenti.assenti.join(', ')}</p>`; }
         if(!isDept && !isFree) { 
             html += `<p class="mt-2"><strong>Genitori:</strong> ${appData.participants.genitori.presenti.join(', ') || 'Nessuno'}</p>`;
-            // Assenti (Genitori)
-            if(appData.participants.genitori.assenti.length > 0) {
-                html += `<p class="mb-1 text-slate-500"><strong>Assenti:</strong> ${appData.participants.genitori.assenti.join(', ')}</p>`;
-            }
+            if(appData.participants.genitori.assenti.length > 0) { html += `<p class="mb-1 text-slate-500"><strong>Assenti:</strong> ${appData.participants.genitori.assenti.join(', ')}</p>`; }
         }
         html += `</div>`;
     }
@@ -344,7 +379,7 @@ window.renderPreview = function() {
         if(s.style) {
             if(s.style.color) titleStyle += `color:${s.style.color};`;
             if(s.style.underline) titleStyle += `text-decoration:underline;`;
-            if(s.style.size) { // UI approximation
+            if(s.style.size) { 
                 let sz = '1.1rem'; 
                 if(s.style.size == '10') sz = '0.9rem';
                 if(s.style.size == '14') sz = '1.3rem';
@@ -397,7 +432,7 @@ window.stampaVerbale = async function() {
     doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.text(SCHOOL_CONFIG.rigaIndirizzo, MARGIN + 30, cursorY + 12); doc.text(SCHOOL_CONFIG.rigaContatti, MARGIN + 30, cursorY + 16);
     cursorY += 30; doc.setLineWidth(0.5); doc.line(MARGIN, cursorY, PAGE_W - MARGIN, cursorY); cursorY += 15;
 
-    // Standard Sections
+    // Sections
     if(showGen) {
         let typeV = 'VERBALE CONSIGLIO DI CLASSE'; if(appData.type === 'dipartimento') typeV = 'VERBALE DI DIPARTIMENTO'; if(appData.type === 'libero') typeV = 'VERBALE DI RIUNIONE';
         doc.setFontSize(18); doc.setFont("helvetica", "bold"); doc.text(typeV, PAGE_W/2, cursorY, {align: "center"}); cursorY += 10;
@@ -439,8 +474,6 @@ window.stampaVerbale = async function() {
 
     for (const s of appData.customSections) {
         checkPage(30); doc.setFontSize(11); 
-        
-        // TITLE STYLE IN PDF
         doc.setFont("helvetica", "bold");
         if(s.style?.color) doc.setTextColor(s.style.color); else doc.setTextColor(0,0,0);
         let titleSize = s.style?.size ? parseInt(s.style.size) : 11;
