@@ -39,4 +39,5 @@ Il progetto è composto da soli file statici:
 ├── script.js       # Tutta la logica, salvataggio e generazione PDF
 ├── config.js       # Configurazione dati scuola e logo
 ├── logo.png        # Il logo della scuola (deve essere locale per il PDF)
+├── favicon.png     # Il favicon del sito
 └── README.md       # Questo file
