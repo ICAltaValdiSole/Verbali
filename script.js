@@ -231,7 +231,7 @@ function configureUIByType() {
     const sigSection = document.getElementById('signatures-section'); if(sigSection) isDept ? sigSection.classList.add('hidden') : sigSection.classList.remove('hidden');
     const fieldTitolo = document.getElementById('field-titoloAgg'); if(fieldTitolo) (isDept || isFree) ? fieldTitolo.classList.remove('hidden') : fieldTitolo.classList.add('hidden');
     const lblScope = document.getElementById('lbl-scope'); if(lblScope && !appData.labels['lbl-scope']) lblScope.innerText = isFree ? 'Oggetto / Gruppo' : (isDept ? 'Materia / Dipartimento' : 'Classe / Sezione');
-    const lblPres = document.getElementById('lbl-pres'); if(lblPres && !appData.labels['lbl-pres']) lblPres.innerText = isFree ? 'Presiede / Coordina' : (isDept ? 'Presidente' : 'Coordinatore');
+    const lblPres = document.getElementById('lbl-pres'); if(lblPres && !appData.labels['lbl-pres']) lblPres.innerText = isFree ? 'Coordinatore' : (isDept ? 'Presidente' : 'Coordinatore');
     const lblSegr = document.getElementById('lbl-segr'); if(lblSegr && !appData.labels['lbl-segr'] && isFree) lblSegr.innerText = 'Verbalizzante';
     const closingEl = document.getElementById('closingText'); if(closingEl) closingEl.value = appData.general.closingText || '';
 }
